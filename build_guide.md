@@ -1,4 +1,3 @@
-I'll check the current source for the standard hyperspectral datasets, then write the walkthrough.# PCA Hyperspectral Compression: Build Walkthrough
 
 ## Verdict
 
