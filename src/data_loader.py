@@ -248,13 +248,7 @@ def load_hyperspectral_data(path: str | Path, dataset_name: str = "Indian Pines"
 
     if p.is_file():
         cube = load_cube_file(p)
-        dtype_original = str(np.asarray(np.load(str(p), allow_pickle=True) if p.suffix.lower() in (".npy", ".npz") else cube).dtype) if p.suffix.lower() in (".npy", ".npz") else str(cube.dtype)
-        # For .npy we can report the true on-disk dtype:
-        if p.suffix.lower() == ".npy":
-            with open(p, "rb") as f:
-                import numpy.lib.format as fmt
-                _ver, _shape, dtype_disk = fmt.read_magic_and_header(f, ">=")
-                dtype_original = str(dtype_disk)
+        dtype_original = str(np.asarray(cube).dtype)
         cube_source = str(p)
         # Look for sibling gt file.
         for sib in p.parent.iterdir():
@@ -284,13 +278,7 @@ def load_hyperspectral_data(path: str | Path, dataset_name: str = "Indian Pines"
         cube_file = pool[0]
         cube = load_cube_file(cube_file)
         cube_source = str(cube_file)
-        if cube_file.suffix.lower() == ".npy":
-            with open(cube_file, "rb") as f:
-                import numpy.lib.format as fmt
-                _ver, _shape, dtype_disk = fmt.read_magic_and_header(f, ">=")
-                dtype_original = str(dtype_disk)
-        else:
-            dtype_original = str(cube.dtype)
+        dtype_original = str(np.asarray(cube).dtype)
         metadata["candidates"] = [f.name for f in pool]
         for f in files:
             if _is_gt_file(f):
