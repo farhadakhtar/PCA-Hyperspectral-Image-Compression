@@ -1,0 +1,25 @@
+# Raw hyperspectral data (use kagglehub download, never commit binaries)
+data/raw/
+*.zip
+archive (*/
+archive*/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# Results / caches (per build_guide.md)
+results/*.npz
+results/
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
