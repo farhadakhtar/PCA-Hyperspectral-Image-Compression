@@ -24,6 +24,9 @@ from src.reconstruction import reconstruct_cube  # noqa: E402
 from src.utils import format_bytes  # noqa: E402
 from src.visualization import (false_color, fig_comparison, fig_experiment_table,  # noqa: E402
                                fig_variance, pixel_rmse_map)
+from src.image_converter import (SUPPORTED_DTypes, WARNING_TEXT, cast_cube, cube_info,  # noqa: E402
+                                 cube_to_npz_bytes, cube_to_npy_bytes, load_standard_image,
+                                 rgb_to_cube, synthetic_bands)
 
 st.set_page_config(page_title="Hyperspectral PCA Lab", layout="wide")
 
@@ -32,7 +35,8 @@ st.subheader("PCA-Based Hyperspectral Image Compression & Reconstruction — Ind
 st.caption("DATA → MATHEMATICS → ALGORITHM → REDUCTION → RECONSTRUCTION → EVALUATION")
 
 PAGES = ["Dashboard", "Dataset", "PCA Analysis", "Components",
-         "Reconstruction", "Experiments", "Metrics", "Export", "About PCA"]
+         "Reconstruction", "Experiments", "Metrics", "Export",
+         "Image → NPY Converter", "About PCA"]
 page = st.sidebar.radio("Navigation", PAGES)
 
 # ---------- session state ----------
@@ -79,6 +83,103 @@ with st.sidebar:
             st.success(f"Loaded upload {ss.cube.shape}")
         except Exception as e:
             st.error(f"Load failed: {e}")
+
+# ================= Image → NPY Converter (works without a loaded cube) =================
+if page == "Image → NPY Converter":
+    st.header("Image → NPY Converter")
+    st.warning(WARNING_TEXT)
+    st.caption("True RGB mode stores the 3 measured channels. "
+               "Synthetic mode expands RGB into N *approximated* bands for pipeline testing only.")
+
+    img_up = st.file_uploader("Upload image (JPG / JPEG / PNG / BMP / TIFF)",
+                              type=["jpg", "jpeg", "png", "bmp", "tiff", "tif"])
+    mode = st.radio("Conversion mode",
+                    ["True RGB cube (H × W × 3)",
+                     "Synthetic hyperspectral (SYNTHETIC / APPROXIMATED)"])
+    is_synth = mode.startswith("Synthetic")
+    n_bands = 10
+    if is_synth:
+        n_bands = st.selectbox("Synthetic bands", [10, 20, 50, 100, 200], index=1)
+        st.caption("SYNTHETIC/APPROXIMATED hyperspectral data — interpolated from RGB, "
+                   "not real spectral measurements.")
+    out_dtype = st.selectbox("Output data type", list(SUPPORTED_DTypes), index=0)
+
+    if img_up is not None:
+        raw_bytes = img_up.getvalue()
+        try:
+            rgb, info = load_standard_image(raw_bytes)
+        except Exception as e:
+            st.error(f"Could not read image: {e}")
+            st.stop()
+        # A new upload invalidates any previous conversion preview.
+        if ss.get("conv_src") != img_up.name:
+            ss["conv_cube"] = None
+        st.subheader("Before conversion — original image")
+        st.image(rgb, caption=f"{img_up.name} (RGB preview)", use_container_width=True)
+        st.write(f"Width × Height: **{info['width']} × {info['height']}** · "
+                 f"Color channels: **{info['channels']} (R, G, B)** · "
+                 f"File size: **{format_bytes(info['file_bytes'])}** "
+                 f"(mode {info['original_mode']}, format {info['format'] or 'unknown'})")
+
+        if st.button("Convert"):
+            try:
+                if is_synth:
+                    cube_c = synthetic_bands(rgb, int(n_bands), out_dtype)
+                    tag = f"synthetic{int(n_bands)}"
+                else:
+                    cube_c = rgb_to_cube(rgb, out_dtype)
+                    tag = "rgb3"
+                ss["conv_cube"] = cube_c
+                ss["conv_name"] = f"{Path(img_up.name).stem}_{tag}"
+                ss["conv_src"] = img_up.name
+            except Exception as e:
+                st.error(f"Conversion failed: {e}")
+                st.stop()
+
+        if ss.get("conv_cube") is None:
+            st.info("Press **Convert** to generate the cube.")
+
+    if (ss.get("conv_cube") is not None and img_up is not None
+            and ss.get("conv_src") == img_up.name):
+        cube_c = np.ascontiguousarray(ss["conv_cube"])
+        ci = cube_info(cube_c, ss.get("conv_name", "converted"))
+        st.subheader("After conversion — generated cube")
+        st.write(f"Cube dimensions: **{ci['height']} × {ci['width']} × {ci['bands']}** · "
+                 f"Bands: **{ci['bands']}** · Data type: **{ci['dtype']}** · "
+                 f"Memory: **{format_bytes(ci['memory_bytes'])}**")
+        if is_synth:
+            st.caption("SYNTHETIC/APPROXIMATED bands — do not treat as real spectra.")
+        band_c = st.slider("Preview band", 1, ci["bands"], 1) - 1
+        fig_c, ax_c = plt.subplots()
+        im_c = ax_c.imshow(np.asarray(cube_c[:, :, band_c]))
+        ax_c.set_title(f"Converted cube — band {band_c + 1}/{ci['bands']}"
+                       + (" (R/G/B)" if ci["bands"] == 3 else " (synthetic band)"))
+        ax_c.axis("off")
+        fig_c.colorbar(im_c, fraction=0.046)
+        st.pyplot(fig_c)
+
+        npy_bytes = cube_to_npy_bytes(cube_c)
+        npz_bytes = cube_to_npz_bytes(cube_c)
+        st.download_button("Download .NPY", npy_bytes,
+                           file_name=f"{ss.get('conv_name', 'converted')}.npy")
+        st.download_button("Download .NPZ", npz_bytes,
+                           file_name=f"{ss.get('conv_name', 'converted')}.npz")
+        if st.button("Send to PCA pipeline"):
+            from src.data_loader import HyperspectralDataset
+            ds_c = HyperspectralDataset(cube=np.asarray(cube_c),
+                                        name=f"Converted ({ss.get('conv_name', '')})",
+                                        source_path="Image → NPY Converter",
+                                        dtype_original=str(cube_c.dtype))
+            ss.ds, ss.cube = ds_c, cube_c.astype(np.float64)
+            ss.engine, ss.Z, ss.recon, ss.X = None, None, None, None
+            B_c = cube_c.shape[2]
+            ss.fb = (0, min(1, B_c - 1), min(2, B_c - 1))
+            ss.k = min(20, B_c)
+            st.success(f"Sent {cube_c.shape} to the PCA pipeline. "
+                       "Open PCA Analysis and press RUN PCA. (Indian Pines workflow untouched.)")
+    elif img_up is None:
+        st.info("Upload a JPG/JPEG/PNG/BMP/TIFF image to begin.")
+    st.stop()
 
 if ss.cube is None:
     st.info("Load the Indian Pines dataset to begin. Default: `data/raw/` "
