@@ -3,6 +3,7 @@
 **Hyperspectral PCA Lab** — load a hyperspectral cube (default: Indian Pines), run spectral PCA,
 inspect principal components, reconstruct the cube, and quantify the compression-vs-quality
 trade-off. All numbers are computed from the loaded dataset; nothing is hard-coded.
+repo link : https://github.com/farhadakhtar/PCA-Hyperspectral-Image-Compression
 
 > Previous version of this file is preserved as [`OLD_README.md`](OLD_README.md).
 
